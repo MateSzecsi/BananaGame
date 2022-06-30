@@ -1,0 +1,157 @@
+C51 COMPILER V9.60.0.0   EFM8BB3_UART_INTERRUPT                                            11/17/2021 22:40:50 PAGE 1   
+
+
+C51 COMPILER V9.60.0.0, COMPILATION OF MODULE EFM8BB3_UART_INTERRUPT
+OBJECT MODULE PLACED IN .\src\EFM8BB3_UART_Interrupt.OBJ
+COMPILER INVOKED BY: c:\SiliconLabs\SimplicityStudio\v4\developer\toolchains\keil_8051\9.60\BIN\C51.exe C:\Users\merge\S
+                    -implicityStudio\v4_workspace\EFM8BB3_UART_Interrupt\src\EFM8BB3_UART_Interrupt.c OMF2 SMALL DEBUG OBJECTEXTEND ROM(LARGE
+                    -) WARNINGLEVEL(2) FLOATFUZZY(3) OPTIMIZE(8,SPEED) INTVECTOR(0X0000) INTPROMOTE INCDIR(C:\Users\merge\SimplicityStudio\v4
+                    -_workspace\EFM8BB3_UART_Interrupt\inc;C:/SiliconLabs/SimplicityStudio/v4/developer/sdks/8051/v4.1.7//kits/common/drivers
+                    -/efm8_retargetserial;C:/SiliconLabs/SimplicityStudio/v4/developer/sdks/8051/v4.1.7//Device/shared/si8051Base;C:/SiliconL
+                    -abs/SimplicityStudio/v4/developer/sdks/8051/v4.1.7//Device/EFM8BB3/inc) PRINT(.\src\EFM8BB3_UART_Interrupt.lst) COND PAG
+                    -EWIDTH(120) PAGELENGTH(65) OBJECT(.\src\EFM8BB3_UART_Interrupt.OBJ)
+
+line level    source
+
+   1          //-----------------------------------------------------------------------------
+   2          // EFM8BB3_UART0_Interrupt.c
+   3          //-----------------------------------------------------------------------------
+   4          // Copyright 2014 Silicon Laboratories, Inc.
+   5          // http://developer.silabs.com/legal/version/v11/Silicon_Labs_Software_License_Agreement.txt
+   6          //
+   7          // Program Description:
+   8          //
+   9          // This program demonstrates how to configure the EFM8BB3 to write to and
+  10          // read from the UART0 interface. The program reads a word using the UART0
+  11          // interrupt and outputs that word to the screen, with all characters in
+  12          // uppercase.
+  13          //
+  14          // Resources:
+  15          //   SYSCLK - 24.5 MHz HFOSC0 / 1
+  16          //   UART0  - 115200 baud, 8-N-1
+  17          //   Timer1 - UART0 clock source
+  18          //   P0.4   - UART0 TX
+  19          //   P0.5   - UART0 RX
+  20          //   P2.2   - Board Controller enable
+  21          //   P3.4   - Display enable
+  22          //
+  23          //-----------------------------------------------------------------------------
+  24          // How To Test: EFM8BB3 STK
+  25          //-----------------------------------------------------------------------------
+  26          // 1) Place the switch in "AEM" mode.
+  27          // 2) Connect the EFM8BB3 STK board to a PC using a mini USB cable.
+  28          // 3) Compile and download code to the EFM8BB3 STK board.
+  29          //    In Simplicity Studio IDE, select Run -> Debug from the menu bar,
+  30          //    click the Debug button in the quick menu, or press F11.
+  31          // 4) On the PC, open HyperTerminal (or any other terminal program) and connect
+  32          //    to the JLink CDC UART Port at 115200 baud rate and 8-N-1.
+  33          // 5) Run the code.
+  34          //    In Simplicity Studio IDE, select Run -> Resume from the menu bar,
+  35          //    click the Resume button in the quick menu, or press F8.
+  36          // 6) Using a terminal program on the PC, input any number of lower-case
+  37          //    characters, up to UART_BUFFERSIZE (default 64), followed by either
+  38          //    a carriage return ('\r'), a newline character ('\n'), or a tilda ('~').
+  39          //    The program will change the input characters to upper-case and output
+  40          //    them over UART.
+  41          //
+  42          // Target:         EFM8BB3
+  43          // Tool chain:     Generic
+  44          //
+  45          // Release 0.1 (ST)
+  46          //    - Initial Revision
+  47          //    - 20 MAY 2015
+  48          //
+  49          
+  50          //-----------------------------------------------------------------------------
+C51 COMPILER V9.60.0.0   EFM8BB3_UART_INTERRUPT                                            11/17/2021 22:40:50 PAGE 2   
+
+  51          // Includes
+  52          //-----------------------------------------------------------------------------
+  53          #include <SI_EFM8BB3_Register_Enums.h>
+  54          #include "retargetserial.h"
+  55          #include "InitDevice.h"
+  56          
+  57          //-----------------------------------------------------------------------------
+  58          // Pin Definitions
+  59          //-----------------------------------------------------------------------------
+  60          SI_SBIT (DISP_EN, SFR_P3, 4);          // Display Enable
+  61          #define DISP_BC_DRIVEN   0             // 0 = Board Controller drives display
+  62          #define DISP_EFM8_DRIVEN 1             // 1 = EFM8 drives display
+  63          
+  64          SI_SBIT (BC_EN, SFR_P2, 2);            // Board Controller Enable
+  65          #define BC_DISCONNECTED 0              // 0 = Board Controller disconnected
+  66                                                 //     to EFM8 UART pins
+  67          #define BC_CONNECTED    1              // 1 = Board Controller connected
+  68                                                 //     to EFM8 UART pins
+  69          
+  70          //-----------------------------------------------------------------------------
+  71          // Global Variables
+  72          //-----------------------------------------------------------------------------
+  73          // Variables in Interrupts.c
+  74          extern uint8_t UART_Buffer_Size;
+  75          extern uint8_t TX_Ready;
+  76          extern uint8_t Byte;
+  77          
+  78          //-----------------------------------------------------------------------------
+  79          // SiLabs_Startup() Routine
+  80          // ----------------------------------------------------------------------------
+  81          // This function is called immediately after reset, before the initialization
+  82          // code is run in SILABS_STARTUP.A51 (which runs before main() ). This is a
+  83          // useful place to disable the watchdog timer, which is enable by default
+  84          // and may trigger before main() in some instances.
+  85          //-----------------------------------------------------------------------------
+  86          void SiLabs_Startup (void)
+  87          {
+  88   1        // Disable the watchdog here
+  89   1              WDTCN = 0xDE;   //write the appropriate values
+  90   1              WDTCN = 0xAD;   //to the WD control register
+  91   1      }
+  92           
+  93          //-----------------------------------------------------------------------------
+  94          // Main Routine
+  95          //-----------------------------------------------------------------------------
+  96          void main (void)
+  97          {
+  98   1              int alma = 3;
+  99   1      
+ 100   1         enter_DefaultMode_from_RESET();
+ 101   1      
+ 102   1         DISP_EN = DISP_BC_DRIVEN;           // EFM8 does not drive display
+ 103   1      
+ 104   1         BC_EN = BC_CONNECTED;               // Board controller connected to EFM8
+ 105   1                                             // UART pins
+ 106   1         IE_EA = 1;
+ 107   1      
+ 108   1         while(1)
+ 109   1         {
+ 110   2            // If the complete word has been entered via the terminal followed by
+ 111   2            // carriage return or newline
+ 112   2      
+ 113   2            if((TX_Ready == 1) && (UART_Buffer_Size != 0) && ((Byte == '\r') || (Byte == '\n') || (Byte == '~'))
+C51 COMPILER V9.60.0.0   EFM8BB3_UART_INTERRUPT                                            11/17/2021 22:40:50 PAGE 3   
+
+             -)
+ 114   2            {
+ 115   3               TX_Ready = 0;                 // Set the flag to zero
+ 116   3               SCON0_TI = 1;                 // Set transmit flag to 1
+ 117   3            }
+ 118   2         }
+ 119   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =     56    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----       2
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
